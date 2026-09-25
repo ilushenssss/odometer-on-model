@@ -65,7 +65,7 @@ def run_scenario(sc: ScenarioConfig, track: Optional[TrackMap] = None,
 
     sub = max(1, int(round(1.0 / (sensors.rate * sim.dt))))
     n_steps = int(sc.duration / sim.dt)
-    log = {k: [] for k in ("t", "s", "v", "a", "u", "mass", "mu_true", "proposed_s", "proposed_v",
+    log = {k: [] for k in ("t", "s", "v", "a", "u", "mass", "eff", "mu_true", "proposed_s", "proposed_v",
                            "odometry_s", "odometry_v", "model_s", "model_v", "sigma_s", "sigma_v",
                            "eta", "mass_est", "dist", "mu_hat", "rbf", "mode", "n_used", "slip_true",
                            "slip_est", "z0", "z1", "z2", "st0", "st1", "st2", "x", "y", "px", "py",
@@ -99,7 +99,7 @@ def run_scenario(sc: ScenarioConfig, track: Optional[TrackMap] = None,
         tr = sim.truth()
         L = log
         L["t"].append(t); L["s"].append(sim.s); L["v"].append(sim.v); L["a"].append(sim.a)
-        L["u"].append(sim.u); L["mass"].append(sim.mass)
+        L["u"].append(sim.u); L["mass"].append(sim.mass); L["eff"].append(sim.eff)
         L["mu_true"].append(sim._ap_cur.mu_max)
         L["proposed_s"].append(st.s); L["proposed_v"].append(st.v)
         L["odometry_s"].append(odo_s); L["odometry_v"].append(odo_v)

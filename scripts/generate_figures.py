@@ -207,15 +207,17 @@ def fig_adaptation(res):
     d = res["param_change"]["data"]
     ax = axs[0]
     ax.plot(d["t"], d["mass"] / 1e3, color=C_TRUTH, lw=2.2, label="true mass")
-    ax.plot(d["t"], d["mass_est"] / 1e3, color=C_PROP, label="estimated (m_nom / η)")
+    ax.plot(d["t"], d["mass"] / d["eff"] / 1e3, color=C_TRUTH, lw=1.2, ls="--",
+            label="true mass / traction efficiency")
+    ax.plot(d["t"], d["mass_est"] / 1e3, color=C_PROP, label="estimated effective mass (m_nom / η)")
     ax.axvline(300, color=C_ODO, lw=1, ls="--")
-    ax.annotate("traction converter lost\n(-33 % tractive effort)", (300, ax.get_ylim()[0]), xytext=(8, 10),
+    ax.annotate("traction converter lost\n(-33 % tractive effort)", (300, 35), xytext=(8, 10),
                 textcoords="offset points", fontsize=8, color=TEXT2)
-    ax.set_ylim(35, 80)
+    ax.set_ylim(35, 95)
     ax.set_xlabel("time [s]")
     ax.set_ylabel("mass [t]")
     ax.set_title("Mass / traction identification (η)")
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=8, loc="upper left")
     d = res["autumn"]["data"]
     ax = axs[1]
     ax.plot(d["t"], d["mu_true"], color=C_TRUTH, lw=2.2, label="true peak adhesion (weather)")
@@ -236,8 +238,7 @@ def fig_adaptation(res):
     save(fig, "adaptation.png")
 
 
-def fig_rbf(res):
-    w = res["param_change"]["rbf_w"]
+def fig_rbf(w):
     if w is None:
         return
     from tram_nav.core.rbf import RBFApproximator
@@ -249,12 +250,13 @@ def fig_rbf(res):
     # true unmodelled residual: 15 % extra resistance (mass ~ 58 t at start, varies)
     true = [-0.15 * ph.resistance_force(x, 55_000, p) / (55_000 * (1 + p.rot_mass_factor)) for x in v]
     fig, ax = plt.subplots(figsize=(7, 3.8))
-    ax.plot(v * 3.6, true, color=C_TRUTH, lw=2.2, label="true unmodelled resistance (+15 %)")
-    ax.plot(v * 3.6, [net.predict(x, 0.0) for x in v], color=C_PROP, label="learned by the RBF approximator")
+    ax.plot(v * 3.6, true, color=C_TRUTH, lw=2.2, label="true resistance error only (+15 %)")
+    ax.plot(v * 3.6, [net.predict(x, 0.0) for x in v], color=C_PROP,
+            label="learned by RBF (absorbs traction loss / mass error too)")
     ax.axhline(0, color=GRID)
     ax.set_xlabel("speed [km/h]")
     ax.set_ylabel("residual specific force [m/s²]")
-    ax.set_title("Adaptive nonlinear approximator (scenario 'param_change')")
+    ax.set_title("Optional RBF residual approximator, scenario 'param_change'")
     ax.legend(fontsize=8)
     save(fig, "rbf.png")
 
@@ -332,14 +334,15 @@ def main():
     n_mc = 8 if args.quick else 24
     rng = np.random.default_rng(2024)
     mc_jobs = [(str(rng.choice(names)), int(rng.integers(100, 10_000)), {}) for _ in range(n_mc)]
-    jobs = [(n, 1, {}) for n in names] + [("param_change", 1, {"rbf_enable": False}),
-                                          ("blackout", 1, {"rbf_enable": False}),
+    jobs = [(n, 1, {}) for n in names] + [("param_change", 1, {"rbf_enable": True}),
+                                          ("blackout", 1, {"rbf_enable": True}),
                                           ("nominal", 1, {"station_snap": False}),
                                           ("autumn", 1, {"station_snap": False})] + mc_jobs
     print(f"running {len(jobs)} simulations on {args.jobs} processes ...")
     fig_physics()
     fig_track()
     res, abl, mc, times = {}, {}, [], []
+    rbf_w = None
     with Pool(args.jobs) as pool:
         for k, (name, seed, kw, data, metrics, st, w) in enumerate(pool.imap(_run, jobs)):
             if k < len(names):
@@ -349,12 +352,15 @@ def main():
                       f"rmse_v {metrics['proposed_rmse_v']:.3f} m/s")
             elif k < len(names) + 4:
                 abl[f"{name} {kw}"] = metrics
+                if name == "param_change":
+                    rbf_w = w
             else:
+                metrics["scenario"], metrics["seed"] = name, seed
                 mc.append(metrics)
     for n in names:
         fig_scenario(n, res[n]["data"], res[n]["metrics"])
     fig_adaptation(res)
-    fig_rbf(res)
+    fig_rbf(rbf_w)
     fig_summary(res, names)
     fig_montecarlo(mc)
     fig_timing(times)
@@ -375,6 +381,11 @@ def main():
     lines += ["", "Ablation (same seed):", "", "| run | max pos. error, m | speed RMSE, m/s |", "|---|---|---|"]
     for k, m in abl.items():
         lines.append(f"| {k} | {m['proposed_max_es']:.1f} | {m['proposed_rmse_v']:.3f} |")
+    lines += ["", "Monte Carlo runs:", "", "| scenario | seed | max pos. error, m (% of distance) | speed RMSE, m/s |",
+              "|---|---|---|---|"]
+    for m in sorted(mc, key=lambda q: (q["scenario"], q["seed"])):
+        lines.append(f"| {m['scenario']} | {m['seed']} | {m['proposed_max_es']:.1f} ({m['proposed_rel_es_pct']:.2f} %) "
+                     f"| {m['proposed_rmse_v']:.3f} |")
     for key in ("proposed", "odometry", "model"):
         e = np.array([m[f"{key}_rel_es_pct"] for m in mc])
         v = np.array([m[f"{key}_rmse_v"] for m in mc])

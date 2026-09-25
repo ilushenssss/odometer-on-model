@@ -16,7 +16,7 @@ from .track import TrackMap
 
 class DriverModel:
     def __init__(self, track: TrackMap, p: TramParams, rng: Optional[np.random.Generator] = None,
-                 v_line: float = 16.5, a_lat: float = 0.7, b_plan: float = 0.9,
+                 v_line: float = 16.5, a_lat: float = 0.7, b_plan: float = 0.75,
                  dwell: float = 20.0, handle_rate: float = 1.2):
         self.track = track
         self.p = p
@@ -73,7 +73,7 @@ class DriverModel:
             elif e > -0.4:
                 u_des = 0.0
             else:
-                u_des = max(-0.9, 0.55 * e)
+                u_des = max(-0.9, 0.8 * e)
             near = self.target_station is not None and self.target_station - s < 4.0
             if near or vt < 0.3:
                 u_des = -0.7 if v > 0.05 else -0.5

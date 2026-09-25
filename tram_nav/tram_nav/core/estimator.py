@@ -122,6 +122,7 @@ class TramNavigator:
         self._held = False
         self._held_time = 0.0
         self.n_fixes = 0
+        self._fix_var = 0.0
         self._fix = None                      # (s_station, s_est_after_fix, blind)
         self._k_step = 0
         self._rbf_val = 0.0
@@ -209,10 +210,13 @@ class TramNavigator:
         """Expected micro-slip (creep) of every sensed axle.
 
         Axles transmitting tractive / braking force roll slightly faster /
-        slower than the body:  ``lambda = c * F_axle / (m_axle * g)``.
+        slower than the body.  Inverse of the rising branch of the creep curve
+        with the current adhesion estimate:
+        ``lambda = lambda_p * (1 - sqrt(1 - F_axle / (mu_hat * N_axle)))``.
         """
         p = self.p
-        c = self.np.creep_slip_peak / (2.0 * max(self.mu_hat, 0.05))
+        lp = self.np.creep_slip_peak
+        mu = max(self.mu_hat, 0.03)
         spec = x[4] * x[2] * self.gamma1 / G       # total wheel force / (m g)
         if abs(spec) < 1e-4 or x[1] < 0.3:
             return [0.0] * self.n
@@ -223,8 +227,9 @@ class TramNavigator:
                 r = spec * na / npw if self.powered[i] else 0.0
             else:
                 ed = ph.ed_share(x[1], p)
-                r = spec * ((ed * na / npw if self.powered[i] else 0.0) + (1.0 - ed))
-            out.append(max(-0.03, min(0.03, c * r)))
+                r = -spec * ((ed * na / npw if self.powered[i] else 0.0) + (1.0 - ed))
+            lam = lp * (1.0 - math.sqrt(1.0 - min(r / mu, 0.999)))
+            out.append(lam if spec > 0.0 else -lam)
         return out
 
     def _kf_update(self, H: np.ndarray, e: float, R: float, freeze_pos: bool = False) -> None:
@@ -301,6 +306,8 @@ class TramNavigator:
                 rd = (rd[0], z, rd[1])
             readings.append(rd)
         dec = self.fdi.assess(t, dt, readings, x[1], P[1, 1], vdot, mode, self.R)
+        if self.fdi.reference_faulted:
+            self.mu_hat = n.mu_prior      # the "slips" were an artefact of the faulty reference
         self._adapt_adhesion(mode, dt)
 
         # ---------------- standstill detection ----------------
@@ -373,8 +380,9 @@ class TramNavigator:
         self._k_step += 1
         if n_used and not slipping and not standstill:
             self._calibrate(dec, creep, vdot)
+            coasting = abs(x[2] * x[4]) < n.rbf_coast_accel or not n.rbf_coast_only
             if (self.rbf is not None and x[1] > n.rbf_min_speed and self._k_step % n.rbf_update_every == 0
-                    and self.P[3, 3] < 0.02):
+                    and self.P[3, 3] < 0.02 and coasting):
                 self.rbf.update(x[1], u, x[3] + self._rbf_val)
 
         return self._output(t, vdot, dec, n_used, slipping, standstill)
@@ -393,7 +401,8 @@ class TramNavigator:
             else:
                 ed = ph.ed_share(x[1], p)
                 demand *= ed * p.n_axles / p.n_powered + (1.0 - ed)
-            self.mu_hat = max(n.mu_min, min(self.mu_hat, 0.9 * demand / G))
+            # bounded step: one event can lower the estimate by at most 30 %
+            self.mu_hat = max(n.mu_min, 0.7 * self.mu_hat, min(self.mu_hat, 0.9 * demand / G))
         self.mu_hat += (n.mu_prior - self.mu_hat) * dt / n.mu_recover_tau
 
     def _calibrate(self, dec, creep, vdot) -> None:
@@ -426,8 +435,14 @@ class TramNavigator:
         recent_slip = self.t is not None and self.t - self._last_slip_t < n.snap_slip_window
         R = (n.snap_sigma * (n.snap_slip_factor if recent_slip else 1.0)) ** 2
         S = self.P[0, 0] + var_scale + R
-        if abs(e) > (n.snap_gate_blind if blind else n.snap_gate) or e * e > n.snap_nsigma ** 2 * S:
+        gate = n.snap_gate_blind if blind else n.snap_gate_max
+        if abs(e) > gate:
             return
+        if e * e > n.snap_nsigma ** 2 * S:
+            # robust (Huber-like) fix: never discard a plausible stop, but
+            # inflate its noise so that the innovation sits at n_sigma
+            R = e * e / n.snap_nsigma ** 2 - self.P[0, 0] - var_scale
+            S = self.P[0, 0] + var_scale + R
         # scale estimation from two consecutive fixes
         if self._fix is not None and not blind and not self._fix[2] and self._slip_since_fix < n.scale_max_slip:
             L = s_near - self._fix[0]
@@ -435,12 +450,15 @@ class TramNavigator:
             if L > 150.0 and D > 0.0:
                 rho = D / L
                 if abs(rho - 1.0) < n.scale_gate:
-                    w = self.sigma_k ** 2 / (self.sigma_k ** 2 + (2.0 * n.snap_sigma / L) ** 2)
-                    self.k *= 1.0 + w * (rho - 1.0)
+                    r_rho = 2.0 * (n.snap_scale_sigma / L) ** 2 + self._fix_var / L ** 2
+                    w = self.sigma_k ** 2 / (self.sigma_k ** 2 + r_rho)
+                    step = max(-n.scale_max_step, min(n.scale_max_step, w * (rho - 1.0)))
+                    self.k *= 1.0 + step
                     self.k = min(max(self.k, n.scale_bounds[0]), n.scale_bounds[1])
-                    self.sigma_k = max(math.sqrt(1.0 - w) * self.sigma_k, 1e-3)
+                    self.sigma_k = max(math.sqrt(1.0 - w) * self.sigma_k, n.scale_sigma_min)
         self.P[0, 0] += var_scale
         self._kf_update(np.array([1.0, 0.0, 0.0, 0.0, 0.0]), e, R)
+        self._fix_var = float(self.P[0, 0])
         self._fix = (s_near, float(self.x[0]), blind)
         self._slip_since_fix = 0.0
         self.n_fixes += 1

@@ -49,7 +49,7 @@ class Decision:
 
 class _Channel:
     __slots__ = ("hist", "raw", "last_stamp", "slip_until", "bad_time", "good_time", "latched", "status",
-                 "slip_start", "slip_confirmed", "noise_var", "prev")
+                 "slip_start", "slip_confirmed", "slip_accel_seen", "noise_var", "prev")
 
     def __init__(self):
         self.hist = collections.deque(maxlen=200)
@@ -62,6 +62,7 @@ class _Channel:
         self.status = DROPOUT
         self.slip_start = -1e9
         self.slip_confirmed = False
+        self.slip_accel_seen = False
         self.noise_var = 0.0     # on-line estimate of the channel noise variance
         self.prev = None
 
@@ -75,6 +76,7 @@ class OdometryFDI:
         self.ch = [_Channel() for _ in range(n)]
         self.blind_time = 0.0
         self.slip_onsets: List[int] = []   # channels whose slip was confirmed this cycle
+        self.reference_faulted = False
 
     # ------------------------------------------------------------------
     def _deriv(self, c: _Channel, t: float, base: float = 0.2) -> Optional[float]:
@@ -154,6 +156,9 @@ class OdometryFDI:
                 if t > c.slip_until:
                     c.slip_start, c.slip_confirmed = t, False
                 c.slip_until = t + p.slip_hold
+                c.slip_accel_seen = True
+            elif t > c.slip_until:
+                c.slip_accel_seen = False
             cand.append(i)
 
         # consensus reference (median of the channels that are neither slipping nor faulty)
@@ -177,7 +182,7 @@ class OdometryFDI:
                and abs(dec[i].value - v_pred) < plaus and t > self.ch[i].slip_until]
         dvals = [dec[i].value for i in dch]
         dref, dref_var = None, 0.0
-        if len(dvals) >= 2 and mode != 0 and (v_pred > 0.5 or max(dvals) > 0.5):
+        if len(dvals) >= 2 and mode != 0 and (v_pred > 0.15 or max(dvals) > 0.15):
             trailer = [i for i in dch if not self.powered[i]]
             pool = trailer if (mode > 0 and trailer) else dch   # a non-motored axle cannot spin in traction
             j = (min if mode > 0 else max)(pool, key=lambda k: dec[k].value)
@@ -194,14 +199,18 @@ class OdometryFDI:
             dev = (z - ref) if ref is not None else 0.0
             # directional slip evidence (only powered axles slip in traction)
             if dref is not None and not c.latched and (self.powered[i] or mode < 0):
-                thr_d = max(p.slip_dev_abs, p.slip_dev_rel * dref, 3.0 * math.sqrt(c.noise_var + dref_var))
+                base = p.slip_dev_abs_low if dref < 2.0 else p.slip_dev_abs
+                thr_d = max(base, p.slip_dev_rel * dref, 3.0 * math.sqrt(c.noise_var + dref_var))
                 if (mode > 0 and z - dref > thr_d) or (mode < 0 and dref - z > thr_d):
                     if t > c.slip_until:
-                        c.slip_start, c.slip_confirmed = t, False
+                        c.slip_start, c.slip_confirmed, c.slip_accel_seen = t, False, False
                     c.slip_until = t + p.slip_hold
-                    # a physical slip lasts and goes in the direction of the
-                    # applied force; spikes and scale faults do not
-                    if not c.slip_confirmed and t - c.slip_start >= p.slip_confirm_time:
+                    # a physical slip starts with a wheel-acceleration anomaly,
+                    # lasts, goes in the direction of the applied force and is
+                    # moderate (anti-slip control); wheel-radius offsets, spikes
+                    # and dead sensors are not
+                    if (not c.slip_confirmed and c.slip_accel_seen and t - c.slip_start >= p.slip_confirm_time
+                            and abs(z - dref) < 0.3 * max(dref, 1.0)):
                         c.slip_confirmed = True
                         self.slip_onsets.append(i)
             in_slip = t <= c.slip_until
@@ -244,6 +253,26 @@ class OdometryFDI:
             if gate_fail:
                 d.r_scale = d.nis / gate
             any_accept = any_accept or d.accept
+
+        # persistent "slip" of every motored channel against a non-motored
+        # reference is not physical (the anti-slip system limits real slip to a
+        # few seconds) -> the reference itself is faulty (e.g. scale drift)
+        self.reference_faulted = False
+        if mode > 0:
+            pw = [i for i in cand if self.powered[i] and not self.ch[i].latched]
+            if len(pw) >= 2 and all(t <= self.ch[i].slip_until and t - self.ch[i].slip_start > p.slip_max_time
+                                    for i in pw):
+                zs = [dec[i].value for i in pw]
+                if max(zs) - min(zs) < max(p.consensus_abs, p.consensus_rel * max(zs)):
+                    for j in cand:
+                        if not self.powered[j] and not self.ch[j].latched and dec[j].value < min(zs):
+                            self.ch[j].latched, self.ch[j].good_time = True, 0.0
+                            self.ch[j].status = dec[j].status = FAULT
+                            dec[j].accept = False
+                            self.reference_faulted = True
+                    if self.reference_faulted:
+                        for i in pw:     # the motored channels were right all along
+                            self.ch[i].slip_until = t
 
         # re-acquisition after a long blind phase
         if any_accept:

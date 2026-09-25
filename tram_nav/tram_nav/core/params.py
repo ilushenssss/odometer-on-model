@@ -141,7 +141,7 @@ class NavigatorParams:
     p0_trac: float = 0.1
     p0_dist: float = 0.05
     p0_eta: float = 0.02
-    p0_scale: float = 0.015 ** 2
+    p0_scale: float = 0.03 ** 2            # prior of the odometric scale (wheel wear)
     scale_bounds: Tuple[float, float] = (0.9, 1.1)
     eta_bounds: Tuple[float, float] = (0.6, 1.4)
     dist_bound: float = 1.0
@@ -151,7 +151,9 @@ class NavigatorParams:
     slip_accel: float = 1.5               # |wheel accel - model accel| limit
     slip_dev_abs: float = 0.35            # directional slip threshold [m/s]
     slip_dev_rel: float = 0.02
+    slip_dev_abs_low: float = 0.18        # ... below 2 m/s (wheel spin at start-up)
     noise_est_alpha: float = 0.02         # EWMA gain of the per-channel noise estimate
+    slip_max_time: float = 4.0            # longer "slip" of all motored axles -> reference fault
     slip_confirm_time: float = 0.3        # slip must persist to adapt the adhesion estimate
     consensus_abs: float = 0.35
     consensus_rel: float = 0.06
@@ -167,12 +169,14 @@ class NavigatorParams:
     calib_gain: float = 2e-4
     calib_bound: float = 0.05
     # RBF approximator
-    rbf_enable: bool = True
+    rbf_enable: bool = False              # optional RBF residual approximator (see README, ablation)
     rbf_v_centers: int = 7
     rbf_u_centers: int = 1                # 1 -> residual over speed only (identifiable w.r.t. eta)
     rbf_forget: float = 0.9995
     rbf_min_speed: float = 1.0
     rbf_update_every: int = 5
+    rbf_coast_only: bool = False          # learn only without tractive / brake force
+    rbf_coast_accel: float = 0.1          # |eta*a| below this = coasting [m/s^2]
     zupt_speed: float = 0.10
     zupt_exit_speed: float = 0.25
     blind_zupt_r: float = 0.05 ** 2        # model-inferred standstill when blind
@@ -185,14 +189,18 @@ class NavigatorParams:
     station_snap: bool = True
     snap_min_stop: float = 4.0            # stop duration before matching [s]
     snap_sigma: float = 2.5               # stopping-point spread at a platform [m]
-    snap_gate: float = 20.0               # max |innovation| [m]
+    snap_gate: float = 20.0               # |innovation| always accepted up to ... [m]
+    snap_gate_max: float = 60.0           # ... and never beyond (3 sigma in between)
     snap_gate_blind: float = 150.0        # ... for model-inferred stops without odometry
     snap_min_stop_blind: float = 10.0
     snap_slip_window: float = 30.0        # slip within this time before a stop ...
     snap_slip_factor: float = 3.0         # ... inflates the stopping-point sigma
     snap_nsigma: float = 3.0              # innovation gate [sigma]
+    snap_scale_sigma: float = 8.0         # stopping-point spread assumed for scale estimation [m]
+    scale_sigma_min: float = 0.004
+    scale_max_step: float = 0.01          # max relative scale change per station pair        # floor of the scale uncertainty
     scale_max_slip: float = 2.0           # max slip time between two fixes for a scale update [s]
-    scale_gate: float = 0.03              # max |D/L - 1| accepted for scale update
+    scale_gate: float = 0.08              # max |D/L - 1| accepted for scale update
 
 
 def params_to_dict(p) -> dict:

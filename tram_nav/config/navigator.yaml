@@ -24,6 +24,6 @@ tram_navigator:
 
     nav:
       station_snap: true             # map-aided stop matching
-      rbf_enable: true               # adaptive residual approximator
+      rbf_enable: false              # optional RBF residual approximator (see README)
       use_track_grade: true
       creep_coeff: 0.035
