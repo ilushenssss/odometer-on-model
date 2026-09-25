@@ -1,0 +1,10 @@
+tram_simulator:
+  ros__parameters:
+    scenario: nominal     # nominal | wet | autumn | ice | sensor_faults | blackout | param_change | combined
+    seed: 1
+    track_csv: ""
+    sim_dt: 0.005
+    sensor_rate: 50.0
+    real_time_factor: 1.0
+    publish_clock: false
+    wheel_joint_names: [axle_0, axle_2, axle_3]

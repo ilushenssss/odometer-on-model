@@ -1,0 +1,29 @@
+# Parameters of the tram_navigator node.
+# Every field of TramParams / NavigatorParams (tram_nav/core/params.py) can be
+# overridden here with the "tram." / "nav." prefix.
+tram_navigator:
+  ros__parameters:
+    rate: 50.0                       # estimator / publication rate [Hz]
+    track_csv: ""                    # empty -> <share>/config/demo_track.csv via launch
+    frame_id: map
+    child_frame_id: base_link
+    publish_tf: true
+    initial_position: 0.0            # along-track position at start-up [m]
+    wheel_joint_names: [axle_0, axle_2, axle_3]
+    sensor_powered: [true, true, false]   # is the sensed axle motored?
+    time_budget_ms: 5.0
+
+    tram:
+      mass_nominal: 50000.0
+      wheel_radius: 0.330
+      traction_force_max: 70000.0
+      traction_power: 560000.0
+      brake_force_max: 75000.0
+      n_axles: 4
+      powered_axles: [0, 1, 2]
+
+    nav:
+      station_snap: true             # map-aided stop matching
+      rbf_enable: true               # adaptive residual approximator
+      use_track_grade: true
+      creep_coeff: 0.035

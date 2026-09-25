@@ -1,0 +1,4 @@
+# core library, tests and figures (ROS 2 Humble is only needed for the nodes)
+numpy>=1.21
+matplotlib>=3.5
+pytest>=7
