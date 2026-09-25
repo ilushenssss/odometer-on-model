@@ -48,6 +48,20 @@ class RunResult:
         out["within_3sigma_pct"] = float(100.0 * np.mean(np.abs(d["proposed_s"] - d["s"]) <= 3 * d["sigma_s"] + 0.5))
         return out
 
+    def trajectory(self, track: TrackMap) -> Dict[str, Dict[str, float]]:
+        """2-D trajectory metrics of the three estimators (see core/trajectory.py)."""
+        from .trajectory import trajectory_from_s, trajectory_metrics
+        d = self.data
+        xy_true = np.column_stack([d["x"], d["y"]])
+        res = {"proposed": trajectory_metrics(track, d["t"], d["s"], d["proposed_s"], xy_true,
+                                              np.column_stack([d["px"], d["py"]]), d["yaw"], d["pyaw"],
+                                              d["v"], d["sigma_s"])}
+        for k in ("odometry", "model"):
+            tr = trajectory_from_s(track, d[f"{k}_s"])
+            res[k] = trajectory_metrics(track, d["t"], d["s"], d[f"{k}_s"], xy_true, tr[:, :2], d["yaw"],
+                                        tr[:, 2], d["v"], check_on_track=False)
+        return res
+
 
 def run_scenario(sc: ScenarioConfig, track: Optional[TrackMap] = None,
                  tram: Optional[TramParams] = None, nav: Optional[NavigatorParams] = None,
@@ -68,7 +82,7 @@ def run_scenario(sc: ScenarioConfig, track: Optional[TrackMap] = None,
     log = {k: [] for k in ("t", "s", "v", "a", "u", "mass", "eff", "mu_true", "proposed_s", "proposed_v",
                            "odometry_s", "odometry_v", "model_s", "model_v", "sigma_s", "sigma_v",
                            "eta", "mass_est", "dist", "mu_hat", "rbf", "mode", "n_used", "slip_true",
-                           "slip_est", "z0", "z1", "z2", "st0", "st1", "st2", "x", "y", "px", "py",
+                           "slip_est", "z0", "z1", "z2", "st0", "st1", "st2", "x", "y", "px", "py", "yaw", "pyaw",
                            "blind")}
     step_times = []
     k_nav = 0
@@ -115,5 +129,6 @@ def run_scenario(sc: ScenarioConfig, track: Optional[TrackMap] = None,
             L[f"z{i}"].append(v_i)
             L[f"st{i}"].append(TramNavigator.status_code(st.sensor_status[i]) if i < len(st.sensor_status) else 9)
         L["x"].append(tr["x"]); L["y"].append(tr["y"]); L["px"].append(st.x); L["py"].append(st.y)
+        L["yaw"].append(tr["yaw"]); L["pyaw"].append(st.yaw)
     data = {k: np.asarray(v) for k, v in log.items()}
     return RunResult(sc, data, np.asarray(step_times), nav_p)

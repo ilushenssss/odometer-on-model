@@ -340,6 +340,12 @@ class TramNavigator:
             self.stop_time = 0.0
             self._stop_inflated = False
             self._snapped = False
+            if self.blind_time > n.blind_decorrelate_time and any(d.accept for d in dec):
+                # odometry is back after a long blind phase: a noisy speed snapshot
+                # must not rewrite the dead-reckoned distance through the (poorly
+                # known) s-v correlation -> keep sigma_s, drop the correlation
+                self.P[0, 1:] = 0.0
+                self.P[1:, 0] = 0.0
             for i, d in enumerate(dec):
                 if not d.accept:
                     continue

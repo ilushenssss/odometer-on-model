@@ -59,8 +59,8 @@ def declare_dataclass(node: Node, prefix: str, obj):
 
 
 class NavigatorNode(Node):
-    def __init__(self):
-        super().__init__("tram_navigator")
+    def __init__(self, **kwargs):
+        super().__init__("tram_navigator", **kwargs)
         self.declare_parameter("rate", 50.0)
         self.declare_parameter("track_csv", "")
         self.declare_parameter("frame_id", "map")

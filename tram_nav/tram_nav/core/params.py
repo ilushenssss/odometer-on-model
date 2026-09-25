@@ -179,6 +179,7 @@ class NavigatorParams:
     rbf_coast_accel: float = 0.1          # |eta*a| below this = coasting [m/s^2]
     zupt_speed: float = 0.10
     zupt_exit_speed: float = 0.25
+    blind_decorrelate_time: float = 5.0   # after a longer blind phase: drop the s-v correlation
     blind_zupt_r: float = 0.05 ** 2        # model-inferred standstill when blind
     creep_slip_peak: float = 0.02        # creep: lambda = slip_peak/(2 mu_hat) * F_axle/(m_axle g)
     meas_delay: float = 0.05              # group delay of the pulse-counting window
