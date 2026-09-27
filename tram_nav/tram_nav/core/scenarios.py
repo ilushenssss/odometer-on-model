@@ -65,6 +65,33 @@ def _combined(seed: int = 1) -> ScenarioConfig:
                                   SensorFault(2, "dropout", 700, 820)])
 
 
+def _demo(seed: int = 1) -> ScenarioConfig:
+    """7-minute demo for the jury bag: wet -> leaves -> wet, a stuck sensor,
+    spikes, an emergency stop, passenger exchange and 100 s of total odometry
+    loss (in the wet, after the leaves)."""
+    return ScenarioConfig(name="demo", duration=420, seed=seed, mass=54_000, passenger_exchange=True,
+                          weather_profile=[(0.0, "wet"), (120.0, "leaves"), (250.0, "wet")],
+                          emergency_brakes=[100.0],
+                          faults=[SensorFault(0, "stuck", 50, 80),
+                                  SensorFault(2, "spikes", 150, 220, 0.08),
+                                  SensorFault(0, "dropout", 290, 390),
+                                  SensorFault(1, "dropout", 290, 390),
+                                  SensorFault(2, "dropout", 290, 390)])
+
+
+def _leaves_blackout(seed: int = 1) -> ScenarioConfig:
+    """Known hard case: odometry is lost exactly when the tram departs on
+    leaves (adhesion unknown to the model) - see docs/LIMITATIONS.md."""
+    return ScenarioConfig(name="leaves_blackout", duration=420, seed=seed, mass=54_000, passenger_exchange=True,
+                          weather_profile=[(0.0, "wet"), (150.0, "leaves"), (330.0, "wet")],
+                          emergency_brakes=[120.0],
+                          faults=[SensorFault(0, "stuck", 60, 90),
+                                  SensorFault(2, "spikes", 180, 240, 0.08),
+                                  SensorFault(0, "dropout", 260, 360),
+                                  SensorFault(1, "dropout", 260, 360),
+                                  SensorFault(2, "dropout", 260, 360)])
+
+
 SCENARIOS: Dict[str, Callable[..., ScenarioConfig]] = {
     "nominal": _nominal,
     "wet": _wet,
@@ -74,6 +101,8 @@ SCENARIOS: Dict[str, Callable[..., ScenarioConfig]] = {
     "blackout": _blackout,
     "param_change": _param_change,
     "combined": _combined,
+    "demo": _demo,
+    "leaves_blackout": _leaves_blackout,
 }
 
 

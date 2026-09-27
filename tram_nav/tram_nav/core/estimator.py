@@ -185,7 +185,8 @@ class TramNavigator:
         vdot = sat + eta * a_tb - res + d + self._rbf_val
         tau = p.traction_tau if a_cmd >= 0.0 else p.brake_tau
         adot = (a_cmd - a) / tau
-        ddot = -d / n.dist_decay_tau
+        # at standstill d is not observable: let it fade faster
+        ddot = -d / (n.dist_decay_stop_tau if self._standstill else n.dist_decay_tau)
         J = np.zeros((5, 5))
         J[0, 1] = 1.0
         J[2, 2] = -1.0 / tau
@@ -232,9 +233,12 @@ class TramNavigator:
             out.append(lam if spec > 0.0 else -lam)
         return out
 
-    def _kf_update(self, H: np.ndarray, e: float, R: float, freeze_pos: bool = False) -> None:
+    def _kf_update(self, H: np.ndarray, e: float, R: float, freeze_pos: bool = False,
+                   consider=()) -> None:
+        """Scalar Kalman update.  States in ``consider`` get no gain (Schmidt-Kalman);
+        the Joseph form keeps the covariance consistent for any gain."""
         P = self.P
-        if not freeze_pos and H.sum() == 1.0 and H.max() == 1.0:
+        if not freeze_pos and not consider and H.sum() == 1.0 and H.max() == 1.0:
             # unit measurement vector with the optimal gain: cheap standard form
             j = int(H.argmax())
             S = P[j, j] + R
@@ -247,6 +251,8 @@ class TramNavigator:
         K = PH / S
         if freeze_pos:
             K[0] = 0.0
+        for j in consider:
+            K[j] = 0.0
         self.x += K * e
         IKH = self._I - np.outer(K, H)
         self.P = IKH @ P @ IKH.T + np.outer(K, K) * R   # Joseph form (valid for any gain)
@@ -355,7 +361,9 @@ class TramNavigator:
                 nu = abs(e) / math.sqrt(S)
                 if nu > n.huber_k:  # Huber weighting
                     R *= nu / n.huber_k
-                self._kf_update(H, e, R)
+                # while wheels slip the force is limited by adhesion, not by the mass:
+                # the innovation must not be attributed to eta
+                self._kf_update(H, e, R, consider=(4,) if slipping else ())
                 n_used += 1
                 if d.r_scale == 1.0:  # Sage-Husa adaptation of the channel noise
                     r_new = (1 - n.r_adapt_forget) * self.R[i] + n.r_adapt_forget * max(e * e - S + self.R[i], 0.0)
@@ -376,8 +384,10 @@ class TramNavigator:
         elif not self._held:
             self._snapped_blind = False
 
+        self._demonstrated_adhesion(n_used, slipping)
+
         # ---------------- constraints ----------------
-        x[1] = max(0.0, x[1])
+        x[1] = min(max(0.0, x[1]), 1.1 * p.v_max)
         x[3] = min(max(x[3], -n.dist_bound), n.dist_bound)
         x[4] = min(max(x[4], n.eta_bounds[0]), n.eta_bounds[1])
         self.P = 0.5 * (self.P + self.P.T)
@@ -410,6 +420,20 @@ class TramNavigator:
             # bounded step: one event can lower the estimate by at most 30 %
             self.mu_hat = max(n.mu_min, 0.7 * self.mu_hat, min(self.mu_hat, 0.9 * demand / G))
         self.mu_hat += (n.mu_prior - self.mu_hat) * dt / n.mu_recover_tau
+
+    def _demonstrated_adhesion(self, n_used: int, slipping: bool) -> None:
+        """Adhesion lower bound: force transmitted without slip proves mu >= F/N."""
+        p, n, x = self.p, self.np, self.x
+        if not n_used or slipping or x[1] < 1.0:
+            return
+        aw = x[4] * x[2] * self.gamma1 / G
+        if aw > 0.0:
+            r = aw * p.n_axles / p.n_powered
+        else:
+            ed = ph.ed_share(x[1], p)
+            r = -aw * (ed * p.n_axles / p.n_powered + (1.0 - ed))
+        if r > self.mu_hat:
+            self.mu_hat = min(n.mu_prior, self.mu_hat + n.mu_demo_gain * (r - self.mu_hat))
 
     def _calibrate(self, dec, creep, vdot) -> None:
         """Relative wheel-radius calibration (only the relative scale is

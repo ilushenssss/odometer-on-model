@@ -34,8 +34,8 @@ def generate_launch_description():
     )
     ev = Node(
         package="tram_nav", executable="evaluator", name="tram_nav_evaluator", namespace="tram", output="screen",
-        parameters=[{"csv_path": LaunchConfiguration("log_csv"), "use_sim_time": sim_time}],
-        remappings=[("nav_state", "nav/state"), ("errors", "eval/errors")],
+        parameters=[{"csv_path": LaunchConfiguration("log_csv"), "use_sim_time": sim_time,
+                     "reference": "ground_truth", "truth_topic": "/tram/ground_truth", "track_csv": track}],
     )
     return LaunchDescription([
         DeclareLaunchArgument("scenario", default_value="nominal"),

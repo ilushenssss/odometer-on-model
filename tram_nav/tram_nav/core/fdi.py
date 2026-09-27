@@ -151,7 +151,18 @@ class OdometryFDI:
             # wheel slip from wheel acceleration
             aw = self._deriv(c, t)
             thr_a = max(p.slip_accel, 5.0 * math.sqrt(2.0 * c.noise_var) / 0.2)
-            slip_now = aw is not None and abs(aw - a_model) > thr_a and (v_pred > 0.3 or z > 0.5)
+            # a slip episode STARTS only with the physical sign: the wheel accelerates
+            # faster than the body in traction / decelerates faster in braking; the
+            # opposite sign means the model is off (grade, mass), not a slip
+            if aw is None:
+                slip_now = False
+            else:
+                da = aw - a_model
+                if mode == 0 or (t <= c.slip_until and t - c.slip_start < p.slip_max_time):
+                    excess = abs(da)      # a young episode (anti-slip sawtooth) - either sign
+                else:
+                    excess = da if mode > 0 else -da
+                slip_now = excess > thr_a and (v_pred > 0.3 or z > 0.5)
             if slip_now:
                 if t > c.slip_until:
                     c.slip_start, c.slip_confirmed = t, False

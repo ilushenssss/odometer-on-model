@@ -26,6 +26,9 @@ setup(
             "navigator = tram_nav.nodes.navigator_node:main",
             "simulator = tram_nav.nodes.simulator_node:main",
             "evaluator = tram_nav.nodes.evaluator_node:main",
+            "make_demo_bag = tram_nav.tools.make_demo_bag:main",
+            "track_from_gnss = tram_nav.tools.track_from_gnss:main",
+            "plot_eval = tram_nav.tools.plot_eval:main",
         ],
     },
 )

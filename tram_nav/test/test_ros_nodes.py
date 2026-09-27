@@ -123,3 +123,74 @@ def test_ros_trajectory_end_to_end():
         assert max(off) < 0.05                        # published points lie on the rails
     finally:
         rclpy.shutdown()
+
+
+def test_navigator_custom_inputs_and_result_topics():
+    """Int16 handle 0..1000 (neutral 500) and one Float64 topic per sensor in rpm;
+    /result/velocity and /result/position must be published."""
+    from geometry_msgs.msg import PoseStamped, TwistStamped
+    from rclpy.parameter import Parameter
+    from std_msgs.msg import Int16
+
+    from tram_nav.nodes.navigator_node import NavigatorNode
+
+    rclpy.init()
+    try:
+        P = Parameter
+        nav = NavigatorNode(parameter_overrides=[
+            P("mode", P.Type.STRING, "event"), P("publish_tf", P.Type.BOOL, False),
+            P("handle_topic", P.Type.STRING, "/in/handle"), P("handle_type", P.Type.STRING, "int16"),
+            P("handle_min", P.Type.DOUBLE, 0.0), P("handle_neutral", P.Type.DOUBLE, 500.0),
+            P("handle_max", P.Type.DOUBLE, 1000.0),
+            P("wheel_type", P.Type.STRING, "float64"),
+            P("wheel_topics", P.Type.STRING_ARRAY, ["/in/w0", "/in/w1", "/in/w2"]),
+            P("wheel_units", P.Type.STRING, "rpm")])
+        io = rclpy.create_node("tram_nav_io2")
+        vel, pos = [], []
+        io.create_subscription(TwistStamped, "/result/velocity", vel.append, 50)
+        io.create_subscription(PoseStamped, "/result/position", pos.append, 50)
+        pu = io.create_publisher(Int16, "/in/handle", 10)
+        pw = [io.create_publisher(Float64, f"/in/w{i}", 10) for i in range(3)]
+        ex = rclpy.executors.SingleThreadedExecutor()
+        ex.add_node(nav)
+        ex.add_node(io)
+        t0 = time.time()
+        v = 0.0
+        while time.time() < t0 + 7.0:
+            tt = time.time() - t0
+            v = min(1.0 * tt, 5.0)                         # 1 m/s^2, then constant speed
+            pu.publish(Int16(data=800 if v < 5.0 else 550))  # u = +0.6, then +0.1
+            for k, p in enumerate(pw):
+                # realistic sensors are never bit-identical over time (else: STUCK)
+                vi = v + 0.02 * math.sin(37.0 * time.time() + k)
+                p.publish(Float64(data=vi / 0.33 * 60.0 / (2.0 * math.pi)))
+            ex.spin_once(timeout_sec=0.02)
+        for _ in range(20):
+            ex.spin_once(timeout_sec=0.01)
+        assert nav.nav.u_raw == pytest.approx(0.1)
+        assert nav.nav.state.mode != "BLIND"
+        assert len(vel) > 20 and len(pos) > 20
+        assert vel[-1].twist.linear.x == pytest.approx(v, abs=0.6)
+        assert pos[-1].header.frame_id == "map"
+        assert nav.perf()["latency_ms"] > 0.0
+    finally:
+        rclpy.shutdown()
+
+
+def test_demo_bag_and_track_from_gnss(tmp_path):
+    pytest.importorskip("rosbag2_py")
+    from tram_nav.core.track import TrackMap
+    from tram_nav.tools import make_demo_bag, track_from_gnss
+
+    bag = str(tmp_path / "bag")
+    make_demo_bag.main(["--scenario", "nominal", "--duration", "120", "--out", bag])
+    out = str(tmp_path / "track.csv")
+    track_from_gnss.main(["--bag", bag, "--out", out])
+    true_tr = TrackMap.from_csv(bag + "_track.csv")
+    g = TrackMap.from_csv(out)
+    assert g.geo is not None and g.length > 500.0
+    # the GNSS-built line follows the true one within a few metres
+    from tram_nav.core.trajectory import distance_to_track
+    for s in range(50, int(g.length) - 50, 50):
+        la, lo = g.geo.to_latlon(*g.pose(float(s))[:2])
+        assert distance_to_track(true_tr, *true_tr.geo.to_xy(la, lo)) < 5.0

@@ -127,7 +127,6 @@ class NavigatorParams:
     q_trac: float = 0.02
     q_dist: float = 4e-3
     q_eta: float = 1e-5
-    q_scale: float = 1e-9
     # measurement noise
     r_wheel: float = 0.03 ** 2
     r_wheel_min: float = 0.01 ** 2
@@ -145,7 +144,8 @@ class NavigatorParams:
     scale_bounds: Tuple[float, float] = (0.9, 1.1)
     eta_bounds: Tuple[float, float] = (0.6, 1.4)
     dist_bound: float = 1.0
-    dist_decay_tau: float = 60.0          # disturbance decay when blind
+    dist_decay_tau: float = 60.0          # disturbance correlation time [s]
+    dist_decay_stop_tau: float = 15.0     # ... at standstill (not observable there)
     # fault detection
     timeout: float = 0.3
     slip_accel: float = 1.5               # |wheel accel - model accel| limit
@@ -164,7 +164,8 @@ class NavigatorParams:
     # adhesion adaptation
     mu_prior: float = 0.30
     mu_min: float = 0.04
-    mu_recover_tau: float = 120.0
+    mu_recover_tau: float = 120.0          # drift back to the prior ...
+    mu_demo_gain: float = 0.05            # ... fast rise from demonstrated (slip-free) adhesion
     # calibration
     calib_gain: float = 2e-4
     calib_bound: float = 0.05

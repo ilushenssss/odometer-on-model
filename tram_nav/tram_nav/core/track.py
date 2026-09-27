@@ -37,6 +37,7 @@ class TrackMap:
         self.s, self.x, self.y, self.z = s, x, y, z
         self.length = float(s[-1])
         self.stations: List[float] = sorted(float(v) for v in (stations or []))
+        self.geo = None           # optional LocalFrame (WGS-84 origin)
 
         heading = np.unwrap(np.arctan2(np.gradient(y, s), np.gradient(x, s)))
         self.heading = heading
@@ -92,6 +93,16 @@ class TrackMap:
         i, w = self._locate(s)
         return self._lerp(self._k, i, w)
 
+    def project(self, x: float, y: float) -> float:
+        """Along-track distance of the point of the line closest to ``(x, y)``."""
+        ax, ay = self.x[:-1], self.y[:-1]
+        dx, dy = np.diff(self.x), np.diff(self.y)
+        L2 = np.maximum(dx * dx + dy * dy, 1e-12)
+        t = np.clip(((x - ax) * dx + (y - ay) * dy) / L2, 0.0, 1.0)
+        d2 = (ax + t * dx - x) ** 2 + (ay + t * dy - y) ** 2
+        i = int(np.argmin(d2))
+        return float(self.s[i] + t[i] * (self.s[i + 1] - self.s[i]))
+
     def next_station(self, s: float, margin: float = 2.0) -> Optional[float]:
         i = bisect.bisect_right(self.stations, s + margin)
         return self.stations[i] if i < len(self.stations) else None
@@ -99,24 +110,35 @@ class TrackMap:
     # ------------------------------------------------------------------
     @classmethod
     def from_csv(cls, path: str, smooth_window: float = 10.0) -> "TrackMap":
-        xs, ys, zs, ss, st = [], [], [], [], []
+        """Load a line map.  Columns: ``s,x,y,z,station`` (local metres) or
+        ``lat,lon[,alt][,station]`` (WGS-84; the first point is the origin of the
+        local frame, kept in ``TrackMap.geo``)."""
         with open(path, newline="") as f:
-            rd = csv.DictReader(f)
-            has_s = "s" in (rd.fieldnames or [])
-            for row in rd:
-                xs.append(float(row["x"]))
-                ys.append(float(row["y"]))
-                zs.append(float(row.get("z", 0.0) or 0.0))
-                if has_s:
-                    ss.append(float(row["s"]))
-                if int(float(row.get("station", 0) or 0)):
-                    st.append(float(row["s"]) if has_s else len(xs) - 1)
-        s_arr = ss if has_s else None
-        if not has_s and st:  # station indices -> distances
+            rows = list(csv.DictReader(f))
+        if not rows:
+            raise ValueError(f"empty track file {path}")
+        names = rows[0].keys()
+        geo = None
+        if "lat" in names and "lon" in names:
+            from .geo import LocalFrame
+            geo = LocalFrame(float(rows[0]["lat"]), float(rows[0]["lon"]))
+            xy = [geo.to_xy(float(r["lat"]), float(r["lon"])) for r in rows]
+            xs, ys = [p[0] for p in xy], [p[1] for p in xy]
+            zs = [float(r.get("alt", r.get("z", 0.0)) or 0.0) for r in rows]
+        else:
+            xs = [float(r["x"]) for r in rows]
+            ys = [float(r["y"]) for r in rows]
+            zs = [float(r.get("z", 0.0) or 0.0) for r in rows]
+        has_s = "s" in names
+        if has_s:
+            s_arr = [float(r["s"]) for r in rows]
+        else:
             ds = np.hypot(np.diff(xs), np.diff(ys))
-            cum = np.concatenate([[0.0], np.cumsum(ds)])
-            st = [float(cum[int(i)]) for i in st]
-        return cls(xs, ys, zs, s_arr, st, smooth_window)
+            s_arr = list(np.concatenate([[0.0], np.cumsum(ds)]))
+        st = [s_arr[i] for i, r in enumerate(rows) if int(float(r.get("station", 0) or 0))]
+        tm = cls(xs, ys, zs, s_arr, st, smooth_window)
+        tm.geo = geo
+        return tm
 
     def to_csv(self, path: str, step: float = 5.0):
         grid = np.arange(0.0, self.length + 1e-9, step)

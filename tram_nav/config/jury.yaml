@@ -1,0 +1,45 @@
+# Navigator parameters for replaying a rosbag (bag_replay.launch.py).
+# Adapt the "inputs" block to the topics of your bag:  ros2 bag info <bag>
+tram_navigator:
+  ros__parameters:
+    mode: event                    # estimate on every wheel-speed message (output stamped with it)
+    rate: 50.0                     # used in timer mode; also the nominal filter rate
+    # ---------------- inputs ----------------
+    handle_topic: /tram/controller_handle
+    handle_type: float64           # float64 | float32 | int32 | int16 | int8 | uint8 | uint16 | int64
+    handle_min: -1.0               # raw value: full brake
+    handle_neutral: 0.0            # raw value: coasting
+    handle_max: 1.0                # raw value: full traction
+    wheel_topic: /tram/wheel_speeds
+    wheel_type: joint_state        # joint_state | float64_array | float32_array | float64 | float32
+    wheel_topics: [/wheel_0, /wheel_1, /wheel_2]   # only for per-sensor scalar topics
+    wheel_units: rad_s             # rad_s | rpm | m_s | km_h
+    wheel_joint_names: [axle_0, axle_2, axle_3]
+    sensor_powered: [true, true, false]
+    use_input_stamps: true
+    # ---------------- initial position ----------------
+    initial_position: 0.0          # along-track s0 [m] ...
+    initial_latlon: [0.0, 0.0]     # ... or [lat, lon] projected onto the line (0,0 = unused)
+    initial_xy: [0.0, 0.0, 0.0]    # ... or [x, y, 1] in the map frame
+    geo_origin: [0.0, 0.0]         # map origin when track_csv has no lat/lon
+    # ---------------- outputs ----------------
+    result_velocity_topic: /result/velocity
+    result_position_topic: /result/position
+    result_velocity_type: twist    # twist (TwistStamped) | vector3 (Vector3Stamped, ENU) | float64
+    result_position_type: pose     # pose (PoseStamped) | point (PointStamped) | pose_cov
+    frame_id: map
+    child_frame_id: base_link
+    publish_tf: true
+    time_budget_ms: 5.0
+    # ---------------- vehicle ----------------
+    tram:
+      mass_nominal: 50000.0
+      wheel_radius: 0.330
+      traction_force_max: 70000.0
+      traction_power: 560000.0
+      brake_force_max: 75000.0
+      n_axles: 4
+      powered_axles: [0, 1, 2]
+    nav:
+      station_snap: true
+      rbf_enable: false

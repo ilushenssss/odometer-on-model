@@ -1,0 +1,2 @@
+outputs 21001, step 0.316 ms (max 2.80), latency 0.96 ms (max 3.35), rate 50.0 Hz, CPU 13.7 %, RSS 72 MB, overruns 0
+outputs 21001, step 0.293 ms (max 1.72), latency 0.92 ms (max 4.89), rate 50.0 Hz, CPU 12.7 %, RSS 72 MB, overruns 1

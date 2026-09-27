@@ -64,6 +64,8 @@ SC_TITLES = {
     "blackout": "Мокро, тяжёлый вагон, 300 с полной потери одометрии",
     "param_change": "Меняющийся объект: пассажиры, отказ преобразователя, +15 % сопротивления",
     "combined": "Всё сразу",
+    "demo": "Демо для жюри: мокро → листья, отказы, 100 с без одометрии",
+    "leaves_blackout": "Трудный случай: потеря одометрии при отправлении на листьях",
 }
 
 
@@ -418,9 +420,10 @@ def main():
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
     args = ap.parse_args()
     names = list(SCENARIOS)
+    mc_names = [n for n in names if n not in ("demo", "leaves_blackout")]
     n_mc = 8 if args.quick else 24
     rng = np.random.default_rng(2024)
-    mc_jobs = [(str(rng.choice(names)), int(rng.integers(100, 10_000)), {}) for _ in range(n_mc)]
+    mc_jobs = [(str(rng.choice(mc_names)), int(rng.integers(100, 10_000)), {}) for _ in range(n_mc)]
     jobs = [(n, 1, {}) for n in names] + [("param_change", 1, {"rbf_enable": True}),
                                           ("blackout", 1, {"rbf_enable": True}),
                                           ("nominal", 1, {"station_snap": False}),

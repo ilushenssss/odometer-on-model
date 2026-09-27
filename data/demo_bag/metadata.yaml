@@ -1,0 +1,44 @@
+rosbag2_bagfile_information:
+  version: 5
+  storage_identifier: sqlite3
+  duration:
+    nanoseconds: 420000000000
+  starting_time:
+    nanoseconds_since_epoch: 1760000000020000000
+  message_count: 50402
+  topics_with_message_count:
+    - topic_metadata:
+        name: /tram/ground_truth
+        type: nav_msgs/msg/Odometry
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 4200
+    - topic_metadata:
+        name: /tram/gnss
+        type: sensor_msgs/msg/NavSatFix
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 4200
+    - topic_metadata:
+        name: /tram/wheel_speeds
+        type: sensor_msgs/msg/JointState
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 21001
+    - topic_metadata:
+        name: /tram/controller_handle
+        type: std_msgs/msg/Float64
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 21001
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - demo_bag_0.db3
+  files:
+    - path: demo_bag_0.db3
+      starting_time:
+        nanoseconds_since_epoch: 1760000000020000000
+      duration:
+        nanoseconds: 420000000000
+      message_count: 50402
